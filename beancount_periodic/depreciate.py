@@ -37,6 +37,9 @@ def depreciate(entries: data.Entries, unused_options_map, config_string=""):
     errors = []
     account_types_option = options.get_account_types(unused_options_map)
     accounts_open_close = beancount.core.getters.get_account_open_close(entries)
+    # Track accounts we've generated open directives for to avoid duplicates
+    generated_open_accounts = set()
+
     for entry in entries:
         if isinstance(entry, data.Transaction):
             selected_postings_groups = select_periodic_posting_groups(entry, 'depreciate', errors)
@@ -52,6 +55,22 @@ def depreciate(entries: data.Entries, unused_options_map, config_string=""):
                         )
                     else:
                         continue
+
+                    # Auto-generate Open directive if the account doesn't exist
+                    if new_account not in accounts_open_close and new_account not in generated_open_accounts:
+                        open_directive = data.Open(
+                            account=new_account,
+                            currencies=[posting.units.currency] if posting.units and posting.units.currency else None,
+                            booking=None,
+                            date=entry.date,
+                            meta=data.new_metadata(
+                                entry.meta.get('filename', '<generated>'),
+                                entry.meta.get('lineno', 0)
+                            )
+                        )
+                        new_entries.append(open_directive)
+                        generated_open_accounts.add(new_account)
+
                     new_postings_config.append((config, posting, new_account))
 
                 new_entries.extend(
