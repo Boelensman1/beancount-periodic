@@ -17,7 +17,7 @@ except (ImportError, ModuleNotFoundError):
 RE_TOTAL = '\\s*(?P<total>\\d+(?:\\.\\d+)?)\\s*-'
 PART_DURATION_NAMED = "(?:Day|Week|Month|Quarter|Year)"
 PART_DURATION_NAMED_SHORTEN = "[DWMQY]"
-DURATION_NUM = f'(?P<num>\\d+)?\\s*(?:(?P<unit_named>{PART_DURATION_NAMED}s?)|(?P<unit_named_shorten>' \
+DURATION_NUM = f'(?P<num>\\d+(?:\\.\\d+)?)?\\s*(?:(?P<unit_named>{PART_DURATION_NAMED}s?)|(?P<unit_named_shorten>' \
                f'{PART_DURATION_NAMED_SHORTEN}))?'
 RE_DATE_START = "@\\s*(?P<date_start>\\d{4}-\\d{2}-\\d{2})"
 RE_DATE_END = "~\\s*(?P<date_end>\\d{4}-\\d{2}-\\d{2})"
@@ -36,6 +36,19 @@ CONFIG_STR_PATTERN_DURATION = re.compile(fr'{RE_DURATION}')
 CONFIG_STR_PATTERN_STEP = re.compile(fr'{RE_STEP}')
 
 
+def _get_duration_from_months(start_date, total_months):
+    """
+    Calculate the number of days from a (possibly fractional) number of months.
+    Fractional months are approximated as 30 days per month.
+    """
+    whole_months = int(total_months)
+    fractional_part = total_months - whole_months
+    delta = (start_date + relativedelta(months=whole_months)) - start_date
+    if fractional_part > 0:
+        return delta.days + int(fractional_part * 30)
+    return delta.days
+
+
 def get_duration(start_date, num, unit_named, unit_named_shorten):
     """
     Calculate the number of days by natural date
@@ -49,21 +62,17 @@ def get_duration(start_date, num, unit_named, unit_named_shorten):
     if unit:
         key_letter = unit[:1]
         if key_letter == 'D':
-            return 1 * num
+            return int(num)
         elif key_letter == 'W':
-            return 7 * num
+            return int(7 * num)
         elif key_letter == 'M':
-            delta = (start_date + relativedelta(months=num)) - start_date
-            return delta.days
+            return _get_duration_from_months(start_date, num)
         elif key_letter == 'Q':
-            delta = (start_date + relativedelta(months=num * 3)) - start_date
-            return delta.days
-            pass
+            return _get_duration_from_months(start_date, num * 3)
         elif key_letter == 'Y':
-            delta = (start_date + relativedelta(years=num)) - start_date
-            return delta.days
+            return _get_duration_from_months(start_date, num * 12)
     else:
-        return num
+        return int(num)
 
 
 def get_steps(start_date, duration, num, unit_named, unit_named_shorten):
@@ -80,9 +89,9 @@ def get_steps(start_date, duration, num, unit_named, unit_named_shorten):
     if unit:
         key_letter = unit[:1]
         if key_letter == 'D':
-            return get_steps_simple(duration, num)
+            return get_steps_simple(duration, int(num))
         elif key_letter == 'W':
-            return get_steps_simple(duration, 7 * num)
+            return get_steps_simple(duration, int(7 * num))
         elif key_letter == 'M':
             return __get_steps(start_date, duration, lambda i: relativedelta(months=i))
         elif key_letter == 'Q':
@@ -90,7 +99,7 @@ def get_steps(start_date, duration, num, unit_named, unit_named_shorten):
         elif key_letter == 'Y':
             return __get_steps(start_date, duration, lambda i: relativedelta(years=i))
     else:
-        return get_steps_simple(duration, num)
+        return get_steps_simple(duration, int(num))
 
 
 def get_steps_simple(duration, step):
@@ -180,7 +189,7 @@ def parse(
             start_date = parse_date_liberally(date_start, {}) if date_start else default_start_date
 
             if num or unit_named or unit_named_shorten:
-                num = int(num) if num else 1
+                num = Decimal(num) if num else Decimal('1')
                 duration = get_duration(start_date, num, unit_named, unit_named_shorten)
             elif date_end:
                 duration = (parse_date_liberally(date_end, {}) - start_date).days
@@ -190,7 +199,7 @@ def parse(
                     num = duration_math.group('num')
                     unit_named = duration_math.group('unit_named')
                     unit_named_shorten = duration_math.group('unit_named_shorten')
-                    num = int(num) if num else 1
+                    num = Decimal(num) if num else Decimal('1')
                     duration = get_duration(start_date, num, unit_named, unit_named_shorten)
                 else:
                     return None, PeriodicConfigError(None, 'fail to parse default duration: %s' % default_duration_str,
