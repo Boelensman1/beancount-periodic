@@ -30,6 +30,28 @@ def tx_amortized(date: datetime.date, narration: str) -> Transaction:
     )
 
 
+def tx_prepaid(date: datetime.date, narration: str) -> Transaction:
+    return tests.util.make_transaction(
+        date=date,
+        payee='Insurance Co',
+        narration=narration,
+        account_from='Liabilities:CreditCard:0001',
+        account_to='Assets:Prepaid:Insurance',
+        amount='1200',
+    )
+
+
+def tx_amortized_prepaid(date: datetime.date, narration: str) -> Transaction:
+    return tests.util.make_transaction(
+        date=date,
+        payee='Insurance Co',
+        narration=narration,
+        account_from='Assets:Prepaid:Insurance',
+        account_to='Expenses:Insurance',
+        amount='100',
+    )
+
+
 class AmortizeTest(unittest.TestCase):
     def test_simple(self):
         journal_str = """
@@ -91,6 +113,164 @@ plugin "beancount_periodic.amortize" "{'generate_until':'2022-10-01'}"
 
         same, missing1, missing2 = compare_entries(list(tests.util.get_transactions_cleaned(entries)), expected_entries)
         self.assertTrue(same)
+
+    def test_amortize_from_custom_account(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Liabilities:CreditCard:0001 USD
+1900-01-01 open Expenses:Insurance USD
+1900-01-01 open Assets:Prepaid:Insurance USD
+2026-01-01 * "Insurance Co" "Annual Insurance Premium"
+  Liabilities:CreditCard:0001    -1200 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Insurance"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        expected_entries = [
+            tx_prepaid(datetime.date(2026, 1, 1), 'Annual Insurance Premium'),
+            tx_amortized_prepaid(datetime.date(2026, 1, 1), 'Annual Insurance Premium Amortized(1/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 2, 1), 'Annual Insurance Premium Amortized(2/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 3, 1), 'Annual Insurance Premium Amortized(3/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 4, 1), 'Annual Insurance Premium Amortized(4/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 5, 1), 'Annual Insurance Premium Amortized(5/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 6, 1), 'Annual Insurance Premium Amortized(6/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 7, 1), 'Annual Insurance Premium Amortized(7/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 8, 1), 'Annual Insurance Premium Amortized(8/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 9, 1), 'Annual Insurance Premium Amortized(9/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 10, 1), 'Annual Insurance Premium Amortized(10/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 11, 1), 'Annual Insurance Premium Amortized(11/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 12, 1), 'Annual Insurance Premium Amortized(12/12)'),
+        ]
+
+        same, missing1, missing2 = compare_entries(list(tests.util.get_transactions_cleaned(entries)), expected_entries)
+        self.assertTrue(same)
+
+    def test_amortize_from_backward_compatibility(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Liabilities:CreditCard:0001 USD
+1900-01-01 open Expenses:Insurance USD
+1900-01-01 open Equity:Amortization:Insurance USD
+2026-01-01 * "Insurance Co" "Annual Insurance Premium"
+  Liabilities:CreditCard:0001    -1200 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        expected_original_tx = tests.util.make_transaction(
+            date=datetime.date(2026, 1, 1),
+            payee='Insurance Co',
+            narration='Annual Insurance Premium',
+            account_from='Liabilities:CreditCard:0001',
+            account_to='Equity:Amortization:Insurance',
+            amount='1200',
+        )
+
+        expected_amortized_txs = []
+        for month in range(1, 13):
+            expected_amortized_txs.append(tests.util.make_transaction(
+                date=datetime.date(2026, month, 1),
+                payee='Insurance Co',
+                narration=f'Annual Insurance Premium Amortized({month}/12)',
+                account_from='Equity:Amortization:Insurance',
+                account_to='Expenses:Insurance',
+                amount='100',
+            ))
+
+        expected_entries = [expected_original_tx] + expected_amortized_txs
+
+        same, missing1, missing2 = compare_entries(list(tests.util.get_transactions_cleaned(entries)), expected_entries)
+        self.assertTrue(same)
+
+    def test_amortize_from_with_income(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Assets:Bank USD
+1900-01-01 open Income:Consulting USD
+1900-01-01 open Liabilities:DeferredRevenue USD
+2026-01-01 * "Client" "Annual Consulting Contract"
+  Assets:Bank                     12000 USD
+  Income:Consulting              -12000 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Liabilities:DeferredRevenue"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        expected_original_tx = tests.util.make_transaction(
+            date=datetime.date(2026, 1, 1),
+            payee='Client',
+            narration='Annual Consulting Contract',
+            account_from='Liabilities:DeferredRevenue',
+            account_to='Assets:Bank',
+            amount='12000',
+        )
+
+        expected_amortized_txs = []
+        for month in range(1, 13):
+            expected_amortized_txs.append(tests.util.make_transaction(
+                date=datetime.date(2026, month, 1),
+                payee='Client',
+                narration=f'Annual Consulting Contract Amortized({month}/12)',
+                account_from='Income:Consulting',
+                account_to='Liabilities:DeferredRevenue',
+                amount='1000',
+            ))
+
+        expected_entries = [expected_original_tx] + expected_amortized_txs
+
+        same, missing1, missing2 = compare_entries(list(tests.util.get_transactions_cleaned(entries)), expected_entries)
+        self.assertTrue(same)
+
+    def test_amortize_from_multiple_postings(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Assets:Bank USD
+1900-01-01 open Expenses:Insurance USD
+1900-01-01 open Expenses:Subscription USD
+1900-01-01 open Assets:Prepaid:Insurance USD
+1900-01-01 open Equity:Amortization:Subscription USD
+2026-01-01 * "Vendor" "Annual Payments"
+  Assets:Bank                    -2400 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Insurance"
+  Expenses:Subscription           1200 USD
+    amortize: "12 Months / Monthly"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        # The original transaction should have mixed intermediate accounts
+        # Insurance -> Assets:Prepaid:Insurance (custom)
+        # Subscription -> Equity:Amortization:Subscription (default)
+        # Since both postings have the same schedule, they're grouped into combined transactions:
+        # 1 original + 12 combined monthly = 13 total
+
+        transactions = list(tests.util.get_transactions_cleaned(entries))
+        self.assertEqual(len(transactions), 13)
+
+        # Verify the original transaction uses both intermediate accounts
+        original_tx = transactions[0]
+        self.assertEqual(original_tx.date, datetime.date(2026, 1, 1))
+        account_names = [p.account for p in original_tx.postings]
+        self.assertIn('Assets:Bank', account_names)
+        self.assertIn('Assets:Prepaid:Insurance', account_names)
+        self.assertIn('Equity:Amortization:Subscription', account_names)
+
+        # Verify each amortization transaction has postings from both accounts
+        for i in range(1, 13):
+            amortized_tx = transactions[i]
+            account_names = [p.account for p in amortized_tx.postings]
+            self.assertIn('Assets:Prepaid:Insurance', account_names)
+            self.assertIn('Expenses:Insurance', account_names)
+            self.assertIn('Equity:Amortization:Subscription', account_names)
+            self.assertIn('Expenses:Subscription', account_names)
 
 
 if __name__ == '__main__':

@@ -22,7 +22,14 @@ def amortize(entries: data.Entries, unused_options_map, config_string=""):
                 new_postings_config = []
                 for i, config, config_str in selected_postings:
                     posting: data.Posting = entry.postings[i]
-                    if account_types.is_account_type(account_types_option.expenses, posting.account):
+
+                    # Check for custom amortize_from account
+                    custom_account = posting.meta.get('amortize_from') if posting.meta else None
+
+                    if custom_account:
+                        # User specified a custom intermediate account
+                        new_account = custom_account
+                    elif account_types.is_account_type(account_types_option.expenses, posting.account):
                         new_account = str.join(account.sep,
                                                [account_types_option.equity, 'Amortization',
                                                 account.sans_root(posting.account)])
@@ -34,7 +41,7 @@ def amortize(entries: data.Entries, unused_options_map, config_string=""):
                         continue
                     total = config.total - config.salvage_value
 
-                    new_posting_meta = create_meta(posting.meta, deletions=['amortize', 'narration'])
+                    new_posting_meta = create_meta(posting.meta, deletions=['amortize', 'amortize_from', 'narration'])
 
                     if total == posting.units.number:
                         entry.postings[i] = posting._replace(account=new_account)

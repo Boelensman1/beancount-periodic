@@ -124,6 +124,48 @@ Then this plugin will transform the transaction into:
   Expenses:Home:CommunicationFee
 ```
 
+##### Custom Intermediate Account
+
+By default, the amortize plugin uses `Equity:Amortization:{ExpenseAccount}` as the
+intermediate account for expenses, and `Equity:Received:{IncomeAccount}` for income.
+You can specify a custom account using the `amortize_from` metadata:
+
+```beancount
+2026-01-01 * "Insurance Company" "Annual Insurance Premium"
+  Assets:Bank                    -1200 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Insurance"
+```
+
+This will use `Assets:Prepaid:Insurance` instead of `Equity:Amortization:Expenses:Insurance`.
+
+Original transaction becomes:
+```beancount
+2026-01-01 * "Insurance Company" "Annual Insurance Premium"
+  Assets:Bank                    -1200 USD
+  Assets:Prepaid:Insurance        1200 USD
+```
+
+With 12 monthly amortization transactions:
+```beancount
+2026-01-01 * "Insurance Company" "Annual Insurance Premium Amortized(1/12)"
+  Assets:Prepaid:Insurance        -100 USD
+  Expenses:Insurance               100 USD
+
+2026-02-01 * "Insurance Company" "Annual Insurance Premium Amortized(2/12)"
+  Assets:Prepaid:Insurance        -100 USD
+  Expenses:Insurance               100 USD
+
+; ... (10 more monthly transactions)
+
+2026-12-01 * "Insurance Company" "Annual Insurance Premium Amortized(12/12)"
+  Assets:Prepaid:Insurance        -100 USD
+  Expenses:Insurance               100 USD
+```
+
+This is useful for modeling prepaid expenses as assets rather than equity accounts.
+
 #### `depreciate`
 
 `main.bean`
