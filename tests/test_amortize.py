@@ -272,6 +272,146 @@ plugin "beancount_periodic.amortize"
             self.assertIn('Equity:Amortization:Subscription', account_names)
             self.assertIn('Expenses:Subscription', account_names)
 
+    def test_amortize_label_custom(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Liabilities:CreditCard:0001 USD
+1900-01-01 open Expenses:Insurance USD
+1900-01-01 open Equity:Amortization:Insurance USD
+2026-01-01 * "Insurance Co" "Annual Insurance Premium"
+  Liabilities:CreditCard:0001    -1200 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_label: "Prepaid"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        # Verify the narration uses "Prepaid" instead of "Amortized"
+        transactions = list(tests.util.get_transactions_cleaned(entries))
+        self.assertEqual(len(transactions), 13)  # 1 original + 12 monthly
+
+        for i in range(1, 13):
+            amortized_tx = transactions[i]
+            self.assertIn(f'Prepaid({i}/12)', amortized_tx.narration)
+
+    def test_amortize_label_with_amortize_from(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Liabilities:CreditCard:0001 USD
+1900-01-01 open Expenses:Insurance USD
+1900-01-01 open Assets:Prepaid:Insurance USD
+2026-01-01 * "Insurance Co" "Annual Insurance Premium"
+  Liabilities:CreditCard:0001    -1200 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Insurance"
+    amortize_label: "Prepaid"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        expected_entries = [
+            tx_prepaid(datetime.date(2026, 1, 1), 'Annual Insurance Premium'),
+            tx_amortized_prepaid(datetime.date(2026, 1, 1), 'Annual Insurance Premium Prepaid(1/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 2, 1), 'Annual Insurance Premium Prepaid(2/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 3, 1), 'Annual Insurance Premium Prepaid(3/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 4, 1), 'Annual Insurance Premium Prepaid(4/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 5, 1), 'Annual Insurance Premium Prepaid(5/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 6, 1), 'Annual Insurance Premium Prepaid(6/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 7, 1), 'Annual Insurance Premium Prepaid(7/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 8, 1), 'Annual Insurance Premium Prepaid(8/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 9, 1), 'Annual Insurance Premium Prepaid(9/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 10, 1), 'Annual Insurance Premium Prepaid(10/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 11, 1), 'Annual Insurance Premium Prepaid(11/12)'),
+            tx_amortized_prepaid(datetime.date(2026, 12, 1), 'Annual Insurance Premium Prepaid(12/12)'),
+        ]
+
+        same, missing1, missing2 = compare_entries(list(tests.util.get_transactions_cleaned(entries)), expected_entries)
+        self.assertTrue(same)
+
+    def test_amortize_label_multiple_same(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Assets:Bank USD
+1900-01-01 open Expenses:Insurance USD
+1900-01-01 open Expenses:Subscription USD
+1900-01-01 open Assets:Prepaid:Insurance USD
+1900-01-01 open Assets:Prepaid:Subscription USD
+2026-01-01 * "Vendor" "Annual Payments"
+  Assets:Bank                    -2400 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Insurance"
+    amortize_label: "Prepaid"
+  Expenses:Subscription           1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Subscription"
+    amortize_label: "Prepaid"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        # Both postings have same label, should use "Prepaid"
+        transactions = list(tests.util.get_transactions_cleaned(entries))
+        self.assertEqual(len(transactions), 13)  # 1 original + 12 monthly
+
+        for i in range(1, 13):
+            amortized_tx = transactions[i]
+            self.assertIn(f'Prepaid({i}/12)', amortized_tx.narration)
+
+    def test_amortize_label_multiple_different(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Assets:Bank USD
+1900-01-01 open Expenses:Insurance USD
+1900-01-01 open Expenses:Subscription USD
+1900-01-01 open Assets:Prepaid:Insurance USD
+1900-01-01 open Assets:Prepaid:Subscription USD
+2026-01-01 * "Vendor" "Annual Payments"
+  Assets:Bank                    -2400 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Insurance"
+    amortize_label: "Prepaid"
+  Expenses:Subscription           1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Subscription"
+    amortize_label: "Deferred"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        # Different labels, should default to "Amortized"
+        transactions = list(tests.util.get_transactions_cleaned(entries))
+        self.assertEqual(len(transactions), 13)  # 1 original + 12 monthly
+
+        for i in range(1, 13):
+            amortized_tx = transactions[i]
+            self.assertIn(f'Amortized({i}/12)', amortized_tx.narration)
+
+    def test_amortize_label_backward_compatibility(self):
+        journal_str = """
+plugin "beancount_periodic.amortize"
+1900-01-01 open Liabilities:CreditCard:0001 USD
+1900-01-01 open Expenses:Insurance USD
+1900-01-01 open Equity:Amortization:Insurance USD
+2026-01-01 * "Insurance Co" "Annual Insurance Premium"
+  Liabilities:CreditCard:0001    -1200 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+"""
+        entries, errors, options_map = load_string(journal_str)
+        self.assertEqual(len(errors), 0)
+
+        # Without amortize_label, should default to "Amortized"
+        transactions = list(tests.util.get_transactions_cleaned(entries))
+        self.assertEqual(len(transactions), 13)  # 1 original + 12 monthly
+
+        for i in range(1, 13):
+            amortized_tx = transactions[i]
+            self.assertIn(f'Amortized({i}/12)', amortized_tx.narration)
+
 
 if __name__ == '__main__':
     unittest.main()

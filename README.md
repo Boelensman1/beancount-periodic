@@ -166,6 +166,41 @@ With 12 monthly amortization transactions:
 
 This is useful for modeling prepaid expenses as assets rather than equity accounts.
 
+##### Custom Narration Label
+
+By default, amortized transactions use "Amortized" in their narration (e.g., "Amortized(1/12)").
+You can customize this label using the `amortize_label` metadata:
+
+```beancount
+2026-01-01 * "Insurance Company" "Annual Insurance Premium"
+  Assets:Bank                    -1200 USD
+  Expenses:Insurance              1200 USD
+    amortize: "12 Months / Monthly"
+    amortize_from: "Assets:Prepaid:Insurance"
+    amortize_label: "Prepaid"
+```
+
+This generates transactions with custom labels:
+```beancount
+2026-01-01 * "Insurance Company" "Annual Insurance Premium Prepaid(1/12)"
+  Assets:Prepaid:Insurance        -100 USD
+  Expenses:Insurance               100 USD
+
+2026-02-01 * "Insurance Company" "Annual Insurance Premium Prepaid(2/12)"
+  Assets:Prepaid:Insurance        -100 USD
+  Expenses:Insurance               100 USD
+
+; ... (10 more monthly transactions)
+
+2026-12-01 * "Insurance Company" "Annual Insurance Premium Prepaid(12/12)"
+  Assets:Prepaid:Insurance        -100 USD
+  Expenses:Insurance               100 USD
+```
+
+**Note:** If multiple postings in the same amortization group have different labels, the plugin will
+default to "Amortized". To use custom labels, ensure all postings share the same label or use
+different amortization schedules.
+
 #### `depreciate`
 
 `main.bean`

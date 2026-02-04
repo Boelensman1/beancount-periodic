@@ -20,6 +20,7 @@ def amortize(entries: data.Entries, unused_options_map, config_string=""):
             postings_to_insert_original_entry = []
             for selected_postings in selected_postings_groups:
                 new_postings_config = []
+                custom_labels = []
                 for i, config, config_str in selected_postings:
                     posting: data.Posting = entry.postings[i]
 
@@ -41,7 +42,11 @@ def amortize(entries: data.Entries, unused_options_map, config_string=""):
                         continue
                     total = config.total - config.salvage_value
 
-                    new_posting_meta = create_meta(posting.meta, deletions=['amortize', 'amortize_from', 'narration'])
+                    # Collect custom label for this posting
+                    custom_label = posting.meta.get('amortize_label', 'Amortized') if posting.meta else 'Amortized'
+                    custom_labels.append(custom_label)
+
+                    new_posting_meta = create_meta(posting.meta, deletions=['amortize', 'amortize_from', 'amortize_label', 'narration'])
 
                     if total == posting.units.number:
                         entry.postings[i] = posting._replace(account=new_account)
@@ -56,9 +61,16 @@ def amortize(entries: data.Entries, unused_options_map, config_string=""):
                         ))
                     new_postings_config.append((config, posting, new_account))
 
+                # Determine narration label: use custom if all labels are the same, otherwise default
+                if custom_labels and all(label == custom_labels[0] for label in custom_labels):
+                    narration_label = custom_labels[0]
+                else:
+                    narration_label = 'Amortized'
+                narration_suffix = f'{narration_label}(%d/%d)'
+
                 new_entries.extend(
                     build_steps('amortize', entry, new_postings_config, positive=True,
-                                narration_suffix='Amortized(%d/%d)', generate_until=plugin_config.generate_until))
+                                narration_suffix=narration_suffix, generate_until=plugin_config.generate_until))
 
             postings_to_insert_original_entry.reverse()
             for i, element in postings_to_insert_original_entry:
